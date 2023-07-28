@@ -26,6 +26,8 @@ pub(crate) mod socket;
 mod tcp_stream;
 mod udp_socket;
 pub(crate) mod waker_node_list;
+#[cfg(feature = "modem-trace")]
+pub mod trace;
 
 pub use no_std_net;
 pub use nrfxlib_sys;
@@ -86,31 +88,41 @@ pub async fn init(mode: SystemMode) -> Result<(), Error> {
         });
     }
 
+    // Only provision trace memory if "modem-trace" feature flag is enabled
+    let (trace_base, trace_size) = if cfg!(feature = "modem-trace") {
+        (
+            0x2001_0000,
+            0x2000,
+        )
+    } else {
+        (0x2001_0000, 0)
+    };
+
     // Tell nrf_modem what memory it can use.
     let params = nrfxlib_sys::nrf_modem_init_params {
         shmem: nrfxlib_sys::nrf_modem_shmem_cfg {
             ctrl: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_1 {
                 // At start of shared memory (see memory.x)
-                base: 0x2001_0000,
-                // This is the amount specified in the NCS 1.5.1 release.
+                base: trace_base + trace_size + 0x4000,
+                // control region has a fixed size.
                 size: nrfxlib_sys::NRF_MODEM_SHMEM_CTRL_SIZE,
             },
             tx: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_2 {
                 // Follows on from control buffer
-                base: 0x2001_0000 + nrfxlib_sys::NRF_MODEM_SHMEM_CTRL_SIZE,
+                base: trace_base + trace_size + 0x2000,
                 // This is the amount specified in the NCS 1.5.1 release.
                 size: 0x0000_2000,
             },
             rx: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_3 {
                 // Follows on from TX buffer
-                base: 0x2001_0000 + nrfxlib_sys::NRF_MODEM_SHMEM_CTRL_SIZE + 0x2000,
+                base: trace_base + trace_size,
                 // This is the amount specified in the NCS 1.5.1 release.
                 size: 0x0000_2000,
             },
             // No trace info
             trace: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_4 {
-                base: 0x2001_0000,
-                size: 0,
+                base: trace_base,
+                size: trace_size,
             },
         },
         ipc_irq_prio: 0,
@@ -148,6 +160,32 @@ pub async fn init(mode: SystemMode) -> Result<(), Error> {
 
     if !mode.is_valid_config() {
         return Err(Error::InvalidSystemModeConfig);
+    }
+
+    #[cfg(feature = "modem-trace")]
+        let trace_level = match core::env!(
+    "MODEM_TRACE_LEVEL",
+    "`MODEM_TRACE_LEVEL` environment variable not defined, \n\
+        available options: ['core','ip','ip-lte','ip-lte-gnss']"
+    ) {
+        "ip-lte" => 5,
+        "ip" => 4,
+        "ip-lte-gnss" => 2,
+        "core" => 1,
+        _ => 0,
+    };
+
+    #[cfg(feature = "modem-trace")]
+    if trace_level != 0 {
+        let mut buffer = [0u8; 128];
+        let enable_trace = at_commands::builder::CommandBuilder::create_set(&mut buffer[..], true)
+            .named("%XMODEMTRACE")
+            .with_int_parameter(trace_level)
+            .with_int_parameter(1)
+            .finish()
+            .unwrap();
+
+        at::send_at_bytes::<0>(enable_trace);
     }
 
     let mut buffer = [0; 64];

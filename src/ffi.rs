@@ -31,7 +31,7 @@ pub struct NrfxIpcConfig {
 }
 
 /// IPC callback function type
-type NrfxIpcHandler = extern "C" fn(event_mask: u32, ptr: *mut u8);
+type NrfxIpcHandler = extern "C" fn(event_index: u8, ptr: *mut u8);
 
 /// IPC error type
 #[repr(u32)]
@@ -103,7 +103,7 @@ pub fn get_last_error() -> isize {
 pub extern "C" fn nrf_modem_os_busywait(usec: i32) {
     if usec > 0 {
         // NRF9160 runs at 64 MHz, so this is close enough
-        cortex_m::asm::delay((usec as u32) * 64);
+        cortex_m::asm::delay((usec as u32) * 128);
     }
 }
 
@@ -338,6 +338,7 @@ pub unsafe fn nrf_ipc_irq_handler() {
 
     // Clear these events
     let mut bitmask = events_map;
+    let event_idx = bitmask.trailing_zeros();
     while bitmask != 0 {
         let event_idx = bitmask.trailing_zeros();
         bitmask &= !(1 << event_idx);
@@ -351,7 +352,7 @@ pub unsafe fn nrf_ipc_irq_handler() {
     let handler_addr = IPC_HANDLER.load(core::sync::atomic::Ordering::SeqCst);
     let handler = core::mem::transmute::<usize, NrfxIpcHandler>(handler_addr);
     let context = IPC_CONTEXT.load(core::sync::atomic::Ordering::SeqCst);
-    (handler)(events_map, context as *mut u8);
+    (handler)(event_idx as u8, context as *mut u8);
 
     #[cfg(feature = "defmt")]
     defmt::trace!("IPC done");

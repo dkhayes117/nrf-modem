@@ -29,3 +29,4 @@ embassy-sync = "0.2.0"
 [features]
 default = []
 defmt = ["dep:defmt", "at-commands/defmt"]
+modem-trace = []

@@ -67,6 +67,8 @@ static LIBRARY_ALLOCATOR: WrappedHeap = Mutex::new(RefCell::new(None));
 /// seen by the Cortex-M33 and the modem CPU.
 static TX_ALLOCATOR: WrappedHeap = Mutex::new(RefCell::new(None));
 
+static SHMEM_BASE: u32 = 0x2001_0000;
+
 pub(crate) static MODEM_RUNTIME_STATE: RuntimeState = RuntimeState::new();
 
 /// Start the NRF Modem library
@@ -89,13 +91,10 @@ pub async fn init(mode: SystemMode) -> Result<(), Error> {
     }
 
     // Only provision trace memory if "modem-trace" feature flag is enabled
-    let (trace_base, trace_size) = if cfg!(feature = "modem-trace") {
-        (
-            0x2001_0000,
-            0x2000,
-        )
+    let trace_size = if cfg!(feature = "modem-trace") {
+        0x2000
     } else {
-        (0x2001_0000, 0)
+        0
     };
 
     // Tell nrf_modem what memory it can use.
@@ -103,25 +102,25 @@ pub async fn init(mode: SystemMode) -> Result<(), Error> {
         shmem: nrfxlib_sys::nrf_modem_shmem_cfg {
             ctrl: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_1 {
                 // At start of shared memory (see memory.x)
-                base: trace_base + trace_size + 0x4000,
+                base: SHMEM_BASE + trace_size + 0x4000,
                 // control region has a fixed size.
                 size: nrfxlib_sys::NRF_MODEM_SHMEM_CTRL_SIZE,
             },
             tx: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_2 {
                 // Follows on from control buffer
-                base: trace_base + trace_size + 0x2000,
+                base: SHMEM_BASE + trace_size + 0x2000,
                 // This is the amount specified in the NCS 1.5.1 release.
                 size: 0x0000_2000,
             },
             rx: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_3 {
                 // Follows on from TX buffer
-                base: trace_base + trace_size,
+                base: SHMEM_BASE + trace_size,
                 // This is the amount specified in the NCS 1.5.1 release.
                 size: 0x0000_2000,
             },
             // No trace info
             trace: nrfxlib_sys::nrf_modem_shmem_cfg__bindgen_ty_4 {
-                base: trace_base,
+                base: SHMEM_BASE,
                 size: trace_size,
             },
         },

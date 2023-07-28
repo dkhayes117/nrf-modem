@@ -24,10 +24,10 @@ mod lte_link;
 mod sms;
 pub(crate) mod socket;
 mod tcp_stream;
-mod udp_socket;
-pub(crate) mod waker_node_list;
 #[cfg(feature = "modem-trace")]
 pub mod trace;
+mod udp_socket;
+pub(crate) mod waker_node_list;
 
 pub use no_std_net;
 pub use nrfxlib_sys;
@@ -162,9 +162,9 @@ pub async fn init(mode: SystemMode) -> Result<(), Error> {
     }
 
     #[cfg(feature = "modem-trace")]
-        let trace_level = match core::env!(
-    "MODEM_TRACE_LEVEL",
-    "`MODEM_TRACE_LEVEL` environment variable not defined, \n\
+    let trace_level = match core::env!(
+        "MODEM_TRACE_LEVEL",
+        "`MODEM_TRACE_LEVEL` environment variable not defined, \n\
         available options: ['core','ip','ip-lte','ip-lte-gnss']"
     ) {
         "ip-lte" => 5,

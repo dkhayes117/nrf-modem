@@ -25,6 +25,7 @@ mod lte_link;
 mod sms;
 pub(crate) mod socket;
 mod tcp_stream;
+mod trace;
 mod udp_socket;
 pub(crate) mod waker_node_list;
 
@@ -94,8 +95,14 @@ pub async fn init_with_custom_layout(
     ) {
         return Err(Error::BadMemoryLayout);
     }
+    if memory_layout.trace_area_size > 0 {
+        match memory_layout.trace_level {
+            TracingLevel::None => return Err(Error::BadMemoryLayout),
+            _ => {}
+        }
+    }
 
-    // The modem is only certified when the DC/DC converter is enabled and it isn't by default
+    // The modem is only certified when the DC/DC converter is enabled, and it isn't by default
     unsafe {
         (*nrf9160_pac::REGULATORS_NS::PTR)
             .dcdcen
@@ -157,6 +164,19 @@ pub async fn init_with_custom_layout(
     // Initialize AT notifications
     at_notifications::initialize()?;
 
+    // Use `XMODEMTRACE` AT-command if trace area is provided to set the logging level
+    if memory_layout.trace_area_size > 0 {
+        let mut buffer = [0; 64];
+        at_commands::builder::CommandBuilder::create_set(&mut buffer, true)
+            .named("%XMODEMTRACE")
+            .with_int_parameter(1)
+            .with_int_parameter(memory_layout.trace_level as i32)
+            .finish()
+            .unwrap();
+
+        at::send_at_bytes::<0>(&buffer).await?;
+    };
+
     // Turn off the modem
     let (modem_state,) =
         at_commands::parser::CommandParser::parse(at::send_at::<32>("AT+CFUN?").await?.as_bytes())
@@ -198,6 +218,23 @@ pub struct MemoryLayout {
     pub rx_area_size: u32,
     /// The buffer size of the trace logs
     pub trace_area_size: u32,
+    /// The logging level for tracing
+    pub trace_level: TracingLevel,
+}
+
+/// All available modem core tracing levels
+pub enum TracingLevel {
+    /// Log LTE and IP traces
+    LteIp = 5,
+    /// Log IP traces only
+    Ip = 4,
+    // 3 is reserved by Nordic
+    /// Log LTE, IP, and GNSS traces
+    LteIpGnss = 2,
+    /// Log core dump traces only
+    CoreDump = 1,
+    /// No trace logging
+    None = 0,
 }
 
 impl Default for MemoryLayout {
@@ -208,6 +245,7 @@ impl Default for MemoryLayout {
             rx_area_size: 0x2000,
             // Trace is not implemented yet
             trace_area_size: 0,
+            trace_level: TracingLevel::None,
         }
     }
 }
